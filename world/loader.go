@@ -14,6 +14,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// Йоу, чат! Сьогодні ми розберемо як працює система завантаження чанків!
+// Це дуже важлива частина серверу, яка відповідає за те, які чанки
+// потрібно завантажити для гравця, а які можна вивантажити.
+// Система використовує круговий алгоритм завантаження, щоб гравець
+// завжди бачив світ навколо себе у радіусі видимості.
+
 package world
 
 import (
@@ -23,33 +29,40 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// loader takes part in chunk loading，each loader contains a position 'pos' and a radius 'r'
-// chunks pointed by the position, and the radius of loader will be load。
+// loader відповідає за завантаження чанків навколо певної точки
+// Кожен loader має позицію 'pos' та радіус 'r', в межах якого
+// будуть завантажуватися чанки
 type loader struct {
-	loaderSource
-	loaded      map[[2]int32]struct{}
-	loadQueue   [][2]int32
-	unloadQueue [][2]int32
-	limiter     *rate.Limiter
+	loaderSource                       // інтерфейс для отримання позиції та радіусу
+	loaded       map[[2]int32]struct{} // мапа завантажених чанків
+	loadQueue    [][2]int32            // черга чанків для завантаження
+	unloadQueue  [][2]int32            // черга чанків для вивантаження
+	limiter      *rate.Limiter         // обмежувач швидкості завантаження
 }
 
+// loaderSource - інтерфейс для отримання інформації про точку завантаження
+// Зазвичай це гравець або камера спостереження
 type loaderSource interface {
-	chunkPosition() [2]int32
-	chunkRadius() int32
+	chunkPosition() [2]int32 // повертає позицію в координатах чанків
+	chunkRadius() int32      // повертає радіус завантаження в чанках
 }
 
+// newLoader створює новий завантажувач чанків
+// source - джерело позиції (гравець/камера)
+// limiter - обмежувач швидкості завантаження
 func newLoader(source loaderSource, limiter *rate.Limiter) (l *loader) {
 	l = &loader{
 		loaderSource: source,
 		loaded:       make(map[[2]int32]struct{}),
 		limiter:      limiter,
 	}
-	l.calcLoadingQueue()
+	l.calcLoadingQueue() // одразу розраховуємо перші чанки для завантаження
 	return
 }
 
-// calcLoadingQueue calculate the chunks which loader point.
-// The result is stored in l.loadQueue and the previous will be removed.
+// calcLoadingQueue розраховує які чанки потрібно завантажити
+// Результат зберігається в l.loadQueue, попередня черга очищується
+// Чанки додаються по спіралі від центру до краю радіусу
 func (l *loader) calcLoadingQueue() {
 	l.loadQueue = l.loadQueue[:0]
 	for _, v := range loadList[:radiusIdx[l.chunkRadius()]] {
@@ -61,8 +74,8 @@ func (l *loader) calcLoadingQueue() {
 	}
 }
 
-// calcUnusedChunks calculate the chunks the loader wants to remove.
-// Behaviour is same with calcLoadingQueue.
+// calcUnusedChunks розраховує які чанки можна вивантажити
+// Чанк вивантажується якщо він знаходиться за межами радіусу видимості
 func (l *loader) calcUnusedChunks() {
 	l.unloadQueue = l.unloadQueue[:0]
 	for chunk := range l.loaded {
@@ -74,17 +87,20 @@ func (l *loader) calcUnusedChunks() {
 	}
 }
 
-// loadList is chunks in a certain distance of (0, 0), order by Euclidean distance
-// the more forward the chunk is, the closer it to (0, 0)
+// loadList містить відносні координати чанків відносно центру (0,0)
+// Відсортовані за відстанню від центру - ближчі чанки йдуть першими
 var loadList [][2]int32
 
-// radiusIdx[i] is the count of chunks in loadList and the distance of i
+// radiusIdx[i] містить кількість чанків у loadList для радіусу i
+// Використовується для швидкого знаходження потрібної кількості чанків
 var radiusIdx []int
 
+// init ініціалізує глобальні змінні loadList та radiusIdx
+// Викликається автоматично при старті програми
 func init() {
-	const maxR int32 = 32
+	const maxR int32 = 32 // максимальний радіус завантаження
 
-	// calculate loadList
+	// Заповнюємо loadList всіма можливими позиціями чанків
 	for x := -maxR; x <= maxR; x++ {
 		for z := -maxR; z <= maxR; z++ {
 			pos := [2]int32{x, z}
@@ -93,11 +109,12 @@ func init() {
 			}
 		}
 	}
+	// Сортуємо за відстанню від центру
 	sort.Slice(loadList, func(i, j int) bool {
 		return distance2i(loadList[i]) < distance2i(loadList[j])
 	})
 
-	// calculate radiusIdx
+	// Заповнюємо radiusIdx
 	radiusIdx = make([]int, maxR+1)
 	for i, v := range loadList {
 		r := int32(math.Ceil(distance2i(v)))
@@ -108,7 +125,8 @@ func init() {
 	}
 }
 
-// distance calculates the Euclidean distance that a position to the origin point
+// distance2i обчислює Евклідову відстань від точки до початку координат
+// Використовується для визначення чи чанк входить в радіус завантаження
 func distance2i(pos [2]int32) float64 {
 	return math.Sqrt(float64(pos[0]*pos[0]) + float64(pos[1]*pos[1]))
 }

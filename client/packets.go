@@ -190,96 +190,166 @@ func (c *Client) SendAddPlayer(p *world.Player) {
 	)
 }
 
+// Йоу, чат! Зараз розберемо як працює рух сутностей в майнкрафті!
+// В майні є кілька типів руху - звичайний рух, телепортація і поворот голови
+// Для економії трафіку використовуються різні формати даних
+
+// SendMoveEntitiesPos відправляє відносний рух сутності
+// Використовується коли сутність просто йде, без повороту
 func (c *Client) SendMoveEntitiesPos(eid int32, delta [3]int16, onGround bool) {
+	// Відправляємо пакет руху
 	c.SendPacket(
+		// ID пакету руху сутності
 		packetid.ClientboundMoveEntityPos,
+		// ID сутності яка рухається
 		pk.VarInt(eid),
+		// Зміщення по X відносно поточної позиції (в 1/4096 блока)
 		pk.Short(delta[0]),
+		// Зміщення по Y - можемо рухатись вверх-вниз
 		pk.Short(delta[1]),
+		// Зміщення по Z
 		pk.Short(delta[2]),
+		// Чи стоїть сутність на землі - важливо для анімації
 		pk.Boolean(onGround),
 	)
 }
 
+// SendMoveEntitiesPosAndRot відправляє рух з поворотом
+// Використовується коли сутність йде і одночасно повертається
 func (c *Client) SendMoveEntitiesPosAndRot(eid int32, delta [3]int16, rot [2]int8, onGround bool) {
 	c.SendPacket(
+		// ID пакету руху з поворотом
 		packetid.ClientboundMoveEntityPosRot,
+		// ID сутності
 		pk.VarInt(eid),
+		// Зміщення по X, Y, Z як і в звичайному русі
 		pk.Short(delta[0]),
 		pk.Short(delta[1]),
 		pk.Short(delta[2]),
+		// Новий кут повороту вліво-вправо
 		pk.Angle(rot[0]),
+		// Новий кут нахилу голови
 		pk.Angle(rot[1]),
+		// Чи на землі
 		pk.Boolean(onGround),
 	)
 }
 
+// SendMoveEntitiesRot відправляє тільки поворот
+// Коли сутність стоїть на місці і тільки крутиться
 func (c *Client) SendMoveEntitiesRot(eid int32, rot [2]int8, onGround bool) {
 	c.SendPacket(
+		// ID пакету повороту
 		packetid.ClientboundMoveEntityRot,
+		// ID сутності
 		pk.VarInt(eid),
+		// Нові кути повороту
 		pk.Angle(rot[0]),
 		pk.Angle(rot[1]),
+		// Чи на землі
 		pk.Boolean(onGround),
 	)
 }
 
+// SendRotateHead відправляє поворот голови окремо від тіла
+// В майні голова може крутитись незалежно від тіла
 func (c *Client) SendRotateHead(eid int32, yaw int8) {
 	c.SendPacket(
+		// ID пакету повороту голови
 		packetid.ClientboundRotateHead,
+		// ID сутності
 		pk.VarInt(eid),
+		// Кут повороту голови (тільки вліво-вправо)
 		pk.Angle(yaw),
 	)
 }
 
+// SendTeleportEntity телепортує сутність на нові координати
+// Використовується для великих переміщень, коли відносний рух не підходить
 func (c *Client) SendTeleportEntity(eid int32, pos [3]float64, rot [2]int8, onGround bool) {
 	c.SendPacket(
+		// ID пакету телепортації
 		packetid.ClientboundTeleportEntity,
+		// ID сутності
 		pk.VarInt(eid),
+		// Абсолютні координати X, Y, Z
+		// Використовуємо double для точності
 		pk.Double(pos[0]),
 		pk.Double(pos[1]),
 		pk.Double(pos[2]),
+		// Нові кути повороту
 		pk.Angle(rot[0]),
 		pk.Angle(rot[1]),
+		// Чи на землі після телепорту
 		pk.Boolean(onGround),
 	)
 }
 
+// Лічильник для ID телепортацій
+// Atomic щоб безпечно використовувати з різних потоків
 var teleportCounter atomic.Int32
 
+// SendPlayerPosition телепортує самого гравця
+// Найскладніший тип телепортації, потребує підтвердження від клієнта
 func (c *Client) SendPlayerPosition(pos [3]float64, rot [2]float32) (teleportID int32) {
+	// Генеруємо новий ID для цієї телепортації
 	teleportID = teleportCounter.Add(1)
+
 	c.SendPacket(
+		// ID пакету телепортації гравця
 		packetid.ClientboundPlayerPosition,
+		// Нові координати X, Y, Z
 		pk.Double(pos[0]),
 		pk.Double(pos[1]),
 		pk.Double(pos[2]),
+		// Нові кути повороту
 		pk.Float(rot[0]),
 		pk.Float(rot[1]),
-		pk.Byte(0), // Absolute
+		// Флаги телепортації (0 = абсолютні координати)
+		pk.Byte(0),
+		// ID телепортації для підтвердження
 		pk.VarInt(teleportID),
 	)
 	return
 }
 
+// SendSetDefaultSpawnPosition встановлює точку відродження
+// Сюди гравець потрапить після смерті
 func (c *Client) SendSetDefaultSpawnPosition(xyz [3]int32, angle float32) {
 	c.SendPacket(
+		// ID пакету встановлення спавну
 		packetid.ClientboundSetDefaultSpawnPosition,
+		// Координати спавну (цілі числа)
 		pk.Position{X: int(xyz[0]), Y: int(xyz[1]), Z: int(xyz[2])},
+		// Кут повороту при появі
 		pk.Float(angle),
 	)
 	return
 }
 
+// SendRemoveEntities видаляє сутності зі світу
+// Використовується коли сутності виходять з радіусу видимості
 func (c *Client) SendRemoveEntities(entityIDs []int32) {
 	c.SendPacket(
+		// ID пакету видалення сутностей
 		packetid.ClientboundRemoveEntities,
+		// Список ID сутностей для видалення
+		// Використовуємо unsafe.Pointer для конвертації типів без копіювання
 		pk.Array(*(*[]pk.VarInt)(unsafe.Pointer(&entityIDs))),
 	)
 }
 
+// SendSystemChat відправляє системне повідомлення
+// Наприклад "Гравець приєднався" або "Сервер перезавантажується"
 func (c *Client) SendSystemChat(msg chat.Message, overlay bool) {
-	c.SendPacket(packetid.ClientboundSystemChat, msg, pk.Boolean(overlay))
+	c.SendPacket(
+		// ID пакету системного чату
+		packetid.ClientboundSystemChat,
+		// Текст повідомлення
+		msg,
+		// Чи показувати як оверлей (над хотбаром)
+		pk.Boolean(overlay),
+	)
 }
 
 func (c *Client) SendPlayerChat(

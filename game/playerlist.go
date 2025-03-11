@@ -14,6 +14,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// Йоу, чат! Зараз розберемо як працює список гравців на сервері!
+// Це важлива частина серверу, яка відповідає за:
+// - Відображення гравців у табі (Tab клавіша)
+// - Перевірку з'єднання (пінг)
+// - Оновлення інформації про гравців
+
 package game
 
 import (
@@ -26,12 +32,19 @@ import (
 	"github.com/Tnze/go-mc/server"
 )
 
+// playerList керує списком гравців на сервері
 type playerList struct {
+	// keepAlive перевіряє чи гравці ще підключені
 	keepAlive *server.KeepAlive
-	pingList  *server.PlayerList
+	// pingList зберігає список всіх гравців і їх пінг
+	pingList *server.PlayerList
 }
 
+// addPlayer додає нового гравця до списку
+// Відправляє інформацію про нового гравця всім іншим
+// І відправляє новому гравцю інфу про всіх інших
 func (pl *playerList) addPlayer(c *client.Client, p *world.Player) {
+	// Додаємо гравця в список для відображення в табі
 	pl.pingList.ClientJoin(c, server.PlayerSample{
 		Name: p.Name,
 		ID:   p.UUID,
@@ -52,6 +65,8 @@ func (pl *playerList) addPlayer(c *client.Client, p *world.Player) {
 	c.SendPlayerInfoUpdate(addPlayerAction, players)
 }
 
+// updateLatency оновлює пінг гравця
+// І відправляє цю інфу всім іншим гравцям
 func (pl *playerList) updateLatency(c *client.Client, latency time.Duration) {
 	updateLatencyAction := client.NewPlayerInfoAction(client.PlayerInfoUpdateLatency)
 	p := c.GetPlayer()
@@ -63,6 +78,8 @@ func (pl *playerList) updateLatency(c *client.Client, latency time.Duration) {
 	})
 }
 
+// removePlayer видаляє гравця зі списку
+// І повідомляє про це всіх інших гравців
 func (pl *playerList) removePlayer(c *client.Client) {
 	pl.pingList.ClientLeft(c)
 	pl.keepAlive.ClientLeft(c)
@@ -72,6 +89,8 @@ func (pl *playerList) removePlayer(c *client.Client) {
 	})
 }
 
+// keepAliveHandler створює обробник пакетів keepalive
+// Ці пакети потрібні щоб перевіряти з'єднання з гравцем
 func keepAliveHandler(k *server.KeepAlive) client.PacketHandler {
 	return func(p pk.Packet, c *client.Client) error {
 		var req pk.Long

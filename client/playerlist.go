@@ -1,27 +1,44 @@
+// Йоу, чат! Зараз розберемо як працює список гравців!
+// Цей файл відповідає за керування списком гравців на сервері
+
 package client
 
 import (
+	// Імпортуємо пакет для роботи з сервером
 	"github.com/Tnze/go-mc/server"
 )
 
-// Implement server.PlayerListClient interface
+// Реалізуємо інтерфейс server.PlayerListClient
+// Цей інтерфейс дозволяє серверу керувати списком гравців
+
+// ClientJoin викликається коли гравець приєднується до серверу
+// sample містить інформацію про гравця (нік, UUID і т.д.)
 func (c *Client) ClientJoin(sample server.PlayerSample) {
-	// Implementation
+	// Реалізація буде додана пізніше
 }
 
+// ClientLeft викликається коли гравець виходить з серверу
 func (c *Client) ClientLeft() {
-	// Implementation
+	// Реалізація буде додана пізніше
 }
 
+// ClientTick викликається кожен тік (20 разів на секунду)
+// Тут можна оновлювати інформацію про гравця
 func (c *Client) ClientTick() {
-	// Implementation
+	// Реалізація буде додана пізніше
 }
 
-// Implement server.KeepAliveClient interface
+// Реалізуємо інтерфейс server.KeepAliveClient
+// Цей інтерфейс потрібен для перевірки з'єднання з гравцем
+
+// AddPlayer додає гравця до списку
+// Викликається коли гравець успішно авторизувався
 func (c *Client) AddPlayer() {
-	// Implementation
+	// Реалізація буде додана пізніше
 }
 
+// RemovePlayer видаляє гравця зі списку
+// Викликається коли гравець відключається
 func (c *Client) RemovePlayer() {
-	// Implementation
+	// Реалізація буде додана пізніше
 }

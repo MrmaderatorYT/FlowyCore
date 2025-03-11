@@ -14,6 +14,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// Йоу, чат! Зараз розберемо як працюють метадані сутностей в майнкрафті!
+// Метадані - це додаткова інформація про сутність:
+// - Поза (стоїть, сидить, лежить)
+// - Здоров'я
+// - Ефекти
+// - Кастомні назви
+// і багато іншого!
+
 package entity
 
 import (
@@ -22,81 +30,107 @@ import (
 	pk "github.com/Tnze/go-mc/net/packet"
 )
 
+// MetadataSet - це набір метаданих сутності
+// Кожна сутність має свій набір полів з різними значеннями
 type MetadataSet []MetadataField
 
+// MetadataField - одне поле метаданих
+// Складається з індексу (що це за поле) та значення
 type MetadataField struct {
-	Index byte
-	MetadataValue
+	Index         byte // Номер поля
+	MetadataValue      // Значення поля
 }
 
+// WriteTo записує всі метадані в пакет
+// В кінці записує 0xFF як маркер кінця даних
 func (m MetadataSet) WriteTo(w io.Writer) (n int64, err error) {
 	var tmpN int64
+	// Записуємо кожне поле
 	for _, v := range m {
+		// Записуємо індекс поля
 		tmpN, err = pk.UnsignedByte(v.Index).WriteTo(w)
 		n += tmpN
 		if err != nil {
 			return
 		}
+		// Записуємо значення
 		tmpN, err = v.WriteTo(w)
 		if err != nil {
 			return
 		}
 	}
+	// Записуємо маркер кінця (0xFF)
 	tmpN, err = pk.UnsignedByte(0xFF).WriteTo(w)
 	return n + tmpN, err
 }
 
+// WriteTo записує одне поле метаданих
+// Спочатку тип даних, потім саме значення
 func (m *MetadataField) WriteTo(w io.Writer) (n int64, err error) {
+	// Записуємо ID типу даних
 	n1, err := pk.VarInt(m.MetadataValue.TypeID()).WriteTo(w)
 	if err != nil {
 		return n1, err
 	}
+	// Записуємо значення
 	n2, err := m.MetadataValue.WriteTo(w)
 	return n1 + n2, err
 }
 
+// MetadataValue - інтерфейс для різних типів значень
+// Кожен тип повинен вміти:
+// - Повертати свій ID
+// - Записувати себе в пакет
 type MetadataValue interface {
-	TypeID() int32
-	pk.Field
+	TypeID() int32 // Повертає ID типу даних
+	pk.Field       // Інтерфейс для запису в пакет
 }
 
+// Різні типи метаданих:
 type (
-	Byte struct{ pk.Byte }
-	// VarInt       struct{ pk.VarInt }
-	// Float        struct{ pk.Float }
-	// String       struct{ pk.String }
-	// Chat         struct{ chat.Message }
-	// OptionalChat struct {
-	// 	Exist   bool
-	// 	Message chat.Message
-	// }
-	// Slot     struct{}
-	// Boolean  struct{ pk.Boolean }
-	// Rotation [3]pk.Float
-	// Position struct{ pk.Position }
+	Byte struct{ pk.Byte } // Для маленьких чисел (0-255)
+	// VarInt для великих чисел
+	// Float для дробових чисел
+	// String для тексту
+	// Chat для повідомлень в чаті
+	// OptionalChat для необов'язкових повідомлень
+	// Slot для предметів
+	// Boolean для true/false
+	// Rotation для кутів повороту
+	// Position для координат
 
+	// Pose - поза сутності
 	Pose int32
 )
 
-func (b *Byte) TypeID() int32 { return 0 }
-func (p *Pose) TypeID() int32 { return 18 }
+// TypeID повертає ID типу даних
+func (b *Byte) TypeID() int32 { return 0 }  // Байт = тип 0
+func (p *Pose) TypeID() int32 { return 18 } // Поза = тип 18
 
+// Всі можливі пози сутності
 const (
-	Standing Pose = iota
-	FallFlying
-	Sleeping
-	Swimming
-	SpinAttack
-	Crouching
-	LongJumping
-	Dying
-	Croaking
-	UsingTongue
-	Roaring
-	Sniffing
-	Emerging
-	Digging
+	Standing    Pose = iota // Стоїть
+	FallFlying              // Летить з елітрами
+	Sleeping                // Спить
+	Swimming                // Плаває
+	SpinAttack              // Атакує з розворотом
+	Crouching               // Присів
+	LongJumping             // Довгий стрибок
+	Dying                   // Помирає
+	Croaking                // Квакає (жаба)
+	UsingTongue             // Використовує язик (жаба)
+	Roaring                 // Реве (варден)
+	Sniffing                // Нюхає (варден)
+	Emerging                // Виходить з землі (варден)
+	Digging                 // Копає (варден)
 )
 
-func (p Pose) WriteTo(w io.Writer) (n int64, err error)   { return pk.VarInt(p).WriteTo(w) }
-func (p *Pose) ReadFrom(r io.Reader) (n int64, err error) { return (*pk.VarInt)(p).ReadFrom(r) }
+// WriteTo записує позу в пакет
+func (p Pose) WriteTo(w io.Writer) (n int64, err error) {
+	return pk.VarInt(p).WriteTo(w)
+}
+
+// ReadFrom читає позу з пакету
+func (p *Pose) ReadFrom(r io.Reader) (n int64, err error) {
+	return (*pk.VarInt)(p).ReadFrom(r)
+}

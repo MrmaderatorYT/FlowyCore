@@ -14,12 +14,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// Йоу, чат! Сьогодні ми розберемо як працює система чату в нашому сервері!
+// В Minecraft 1.19+ з'явилася нова система безпеки чату,
+// яка використовує криптографічні підписи для перевірки
+// справжності повідомлень. Це захищає від спуфінгу та спаму.
+
 package world
 
 import "time"
 
-// SetLastChatTimestamp update the lastChatTimestamp and return true if new timestamp is newer than last one.
-// Otherwise, didn't update the lastChatTimestamp and return false.
+// SetLastChatTimestamp оновлює час останнього повідомлення гравця
+// та повертає true, якщо новий час пізніший за попередній.
+// Це потрібно для:
+// 1. Перевірки порядку повідомлень
+// 2. Захисту від спаму
+// 3. Синхронізації чату між клієнтами
 func (p *Player) SetLastChatTimestamp(t time.Time) bool {
 	if p.lastChatTimestamp.Before(t) {
 		p.lastChatTimestamp = t
@@ -28,5 +37,16 @@ func (p *Player) SetLastChatTimestamp(t time.Time) bool {
 	return false
 }
 
-func (p *Player) GetPrevChatSignature() []byte    { return p.lastChatSignature }
-func (p *Player) SetPrevChatSignature(sig []byte) { p.lastChatSignature = sig }
+// GetPrevChatSignature повертає підпис попереднього повідомлення
+// Підпис використовується для створення ланцюжка повідомлень,
+// де кожне нове повідомлення містить підпис попереднього
+func (p *Player) GetPrevChatSignature() []byte {
+	return p.lastChatSignature
+}
+
+// SetPrevChatSignature зберігає підпис останнього повідомлення
+// Цей підпис буде використано при відправці наступного повідомлення
+// для підтвердження послідовності повідомлень
+func (p *Player) SetPrevChatSignature(sig []byte) {
+	p.lastChatSignature = sig
+}

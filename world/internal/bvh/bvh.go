@@ -14,6 +14,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// Йоу, чат! Сьогодні ми розберемо як працює BVH дерево!
+// BVH (Bounding Volume Hierarchy) - це дерево, де кожен вузол
+// містить обмежувальний об'єм (AABB або сферу), який повністю
+// містить всі об'єми в його дочірніх вузлах.
+// Це дозволяє дуже швидко знаходити об'єкти, що перетинаються!
+
 package bvh
 
 import (
@@ -23,17 +29,22 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
+// Node - вузол BVH дерева
+// I - тип для координат (float64)
+// B - тип обмежувального об'єму (AABB або Sphere)
+// V - тип значення, що зберігається в листі
 type Node[I constraints.Float, B interface {
-	Union(B) B
-	Surface() I
+	Union(B) B  // Об'єднання двох об'ємів
+	Surface() I // Площа поверхні об'єму
 }, V any] struct {
-	Box      B
-	Value    V
-	parent   *Node[I, B, V]
-	children [2]*Node[I, B, V]
-	isLeaf   bool
+	Box      B                 // Обмежувальний об'єм
+	Value    V                 // Значення (тільки в листах)
+	parent   *Node[I, B, V]    // Батьківський вузол
+	children [2]*Node[I, B, V] // Дочірні вузли (nil для листів)
+	isLeaf   bool              // Чи є вузол листом
 }
 
+// findAnotherChild повертає інший дочірній вузол (не not)
 func (n *Node[I, B, V]) findAnotherChild(not *Node[I, B, V]) *Node[I, B, V] {
 	if n.children[0] == not {
 		return n.children[1]
@@ -43,6 +54,7 @@ func (n *Node[I, B, V]) findAnotherChild(not *Node[I, B, V]) *Node[I, B, V] {
 	panic("unreachable, please make sure the 'not' is the n's child")
 }
 
+// findChildPointer повертає вказівник на дочірній вузол
 func (n *Node[I, B, V]) findChildPointer(child *Node[I, B, V]) **Node[I, B, V] {
 	if n.children[0] == child {
 		return &n.children[0]
@@ -52,6 +64,7 @@ func (n *Node[I, B, V]) findChildPointer(child *Node[I, B, V]) **Node[I, B, V] {
 	panic("unreachable, please make sure the 'not' is the n's child")
 }
 
+// each обходить дерево і викликає foreach для кожного вузла, що задовольняє test
 func (n *Node[I, B, V]) each(test func(bound B) bool, foreach func(n *Node[I, B, V]) bool) bool {
 	if n == nil {
 		return true
@@ -63,14 +76,21 @@ func (n *Node[I, B, V]) each(test func(bound B) bool, foreach func(n *Node[I, B,
 	}
 }
 
+// Tree - BVH дерево
 type Tree[I constraints.Float, B interface {
 	Union(B) B
 	Surface() I
 }, V any] struct {
-	root *Node[I, B, V]
+	root *Node[I, B, V] // Корінь дерева
 }
 
+// Insert додає новий лист в дерево
+// Алгоритм:
+// 1. Знаходимо найкращого сусіда для нового листа
+// 2. Створюємо новий батьківський вузол
+// 3. Оновлюємо обмежувальні об'єми вгору по дереву
 func (t *Tree[I, B, V]) Insert(leaf B, value V) (n *Node[I, B, V]) {
+	// Створюємо новий лист
 	n = &Node[I, B, V]{
 		Box:      leaf,
 		Value:    value,
@@ -78,23 +98,25 @@ func (t *Tree[I, B, V]) Insert(leaf B, value V) (n *Node[I, B, V]) {
 		children: [2]*Node[I, B, V]{nil, nil},
 		isLeaf:   true,
 	}
+	// Якщо дерево пусте - новий лист стає коренем
 	if t.root == nil {
 		t.root = n
 		return
 	}
 
-	// Stage 1: find the best sibling for the new leaf
+	// Етап 1: Шукаємо найкращого сусіда
 	sibling := t.root
 	bestCost := t.root.Box.Union(leaf).Surface()
-	parentTo := &t.root // the parent's children pointer which point to the sibling
+	parentTo := &t.root // Вказівник на майбутнього сусіда
 
+	// Черга для пошуку найкращого сусіда
 	var queue searchHeap[I, Node[I, B, V]]
 	queue.Push(searchItem[I, Node[I, B, V]]{pointer: t.root, parentTo: &t.root})
 
 	leafCost := leaf.Surface()
 	for queue.Len() > 0 {
 		p := heap.Pop(&queue).(searchItem[I, Node[I, B, V]])
-		// determine if node p has the best cost
+		// Перевіряємо чи поточний вузол кращий за знайдений
 		mergeSurface := p.pointer.Box.Union(leaf).Surface()
 		deltaCost := mergeSurface - p.pointer.Box.Surface()
 		cost := p.inheritedCost + mergeSurface
@@ -103,8 +125,8 @@ func (t *Tree[I, B, V]) Insert(leaf B, value V) (n *Node[I, B, V]) {
 			sibling = p.pointer
 			parentTo = p.parentTo
 		}
-		// determine if it is worthwhile to explore the children of node p.
-		inheritedCost := p.inheritedCost + deltaCost // lower bound
+		// Перевіряємо чи варто дивитись дочірні вузли
+		inheritedCost := p.inheritedCost + deltaCost
 		if !p.pointer.isLeaf && inheritedCost+leafCost < bestCost {
 			heap.Push(&queue, searchItem[I, Node[I, B, V]]{
 				pointer:       p.pointer.children[0],
@@ -119,9 +141,9 @@ func (t *Tree[I, B, V]) Insert(leaf B, value V) (n *Node[I, B, V]) {
 		}
 	}
 
-	// Stage 2: create a new parent
+	// Етап 2: Створюємо новий батьківський вузол
 	*parentTo = &Node[I, B, V]{
-		Box:      sibling.Box.Union(leaf), // we will calculate in Stage3
+		Box:      sibling.Box.Union(leaf),
 		parent:   sibling.parent,
 		children: [2]*Node[I, B, V]{sibling, n},
 		isLeaf:   false,
@@ -129,7 +151,7 @@ func (t *Tree[I, B, V]) Insert(leaf B, value V) (n *Node[I, B, V]) {
 	n.parent = *parentTo
 	sibling.parent = *parentTo
 
-	// Stage 3: walk back up the tree refitting AABBs
+	// Етап 3: Оновлюємо обмежувальні об'єми вгору по дереву
 	for p := *parentTo; p != nil; p = p.parent {
 		p.Box = p.children[0].Box.Union(p.children[1].Box)
 		t.rotate(p)
@@ -137,22 +159,26 @@ func (t *Tree[I, B, V]) Insert(leaf B, value V) (n *Node[I, B, V]) {
 	return
 }
 
+// Delete видаляє вузол з дерева
 func (t *Tree[I, B, V]) Delete(n *Node[I, B, V]) V {
 	if n.parent == nil {
-		// n is the root
+		// Якщо видаляємо корінь - дерево стає пустим
 		t.root = nil
 		return n.Value
 	}
+	// Знаходимо брата видаляємого вузла
 	sibling := n.parent.findAnotherChild(n)
 	grand := n.parent.parent
 	if grand == nil {
-		// n's parent is root
+		// Якщо батько - корінь, брат стає новим коренем
 		t.root = sibling
 		sibling.parent = nil
 	} else {
+		// Інакше брат займає місце батька
 		p := grand.findChildPointer(n.parent)
 		*p = sibling
 		sibling.parent = grand
+		// Оновлюємо обмежувальні об'єми вгору по дереву
 		for p := sibling.parent; p.parent != nil; p = p.parent {
 			p.Box = p.children[0].Box.Union(p.children[1].Box)
 			t.rotate(p)
@@ -161,21 +187,22 @@ func (t *Tree[I, B, V]) Delete(n *Node[I, B, V]) V {
 	return n.Value
 }
 
+// rotate оптимізує дерево, намагаючись зменшити площу обмежувальних об'ємів
 func (t *Tree[I, B, V]) rotate(n *Node[I, B, V]) {
 	if n.isLeaf || n.parent == nil {
 		return
 	}
-	// trying to swap n's sibling and children
+	// Пробуємо поміняти місцями брата та дітей вузла
 	sibling := n.parent.findAnotherChild(n)
 	current := n.Box.Surface()
 	if n.children[1].Box.Union(sibling.Box).Surface() < current {
-		// swap n.children[0] and sibling
+		// Міняємо місцями першу дитину і брата
 		t1 := [2]*Node[I, B, V]{n, n.children[0]}
 		t2 := [2]*Node[I, B, V]{sibling, n.children[1]}
 		n.parent.children, n.children, n.children[0].parent, sibling.parent = t1, t2, n.parent, n
 		n.Box = n.children[0].Box.Union(n.children[1].Box)
 	} else if n.children[0].Box.Union(sibling.Box).Surface() < current {
-		// swap n.children[1] and sibling
+		// Міняємо місцями другу дитину і брата
 		t1 := [2]*Node[I, B, V]{n, n.children[1]}
 		t2 := [2]*Node[I, B, V]{sibling, n.children[0]}
 		n.parent.children, n.children, n.children[1].parent, sibling.parent = t1, t2, n.parent, n
@@ -183,14 +210,17 @@ func (t *Tree[I, B, V]) rotate(n *Node[I, B, V]) {
 	}
 }
 
+// Find шукає всі вузли, що задовольняють умову test
 func (t *Tree[I, B, V]) Find(test func(bound B) bool, foreach func(n *Node[I, B, V]) bool) {
 	t.root.each(test, foreach)
 }
 
+// String повертає текстове представлення дерева
 func (t Tree[I, B, V]) String() string {
 	return t.root.String()
 }
 
+// String повертає текстове представлення вузла
 func (n *Node[I, B, V]) String() string {
 	if n.isLeaf {
 		return fmt.Sprint(n.Value)
@@ -199,27 +229,31 @@ func (n *Node[I, B, V]) String() string {
 	}
 }
 
+// TouchPoint створює функцію для пошуку об'ємів, що містять точку
 func TouchPoint[Vec any, B interface{ WithIn(Vec) bool }](point Vec) func(bound B) bool {
 	return func(bound B) bool {
 		return bound.WithIn(point)
 	}
 }
 
+// TouchBound створює функцію для пошуку об'ємів, що перетинаються з іншим
 func TouchBound[B interface{ Touch(B) bool }](other B) func(bound B) bool {
 	return func(bound B) bool {
 		return bound.Touch(other)
 	}
 }
 
+// searchHeap - допоміжна структура для пошуку найкращого сусіда
 type (
 	searchHeap[I constraints.Float, V any] []searchItem[I, V]
 	searchItem[I constraints.Float, V any] struct {
-		pointer       *V
-		parentTo      **V
-		inheritedCost I
+		pointer       *V  // Вказівник на вузол
+		parentTo      **V // Вказівник на батьківський вказівник
+		inheritedCost I   // Накопичена вартість шляху
 	}
 )
 
+// Реалізація інтерфейсу heap.Interface
 func (h searchHeap[I, V]) Len() int           { return len(h) }
 func (h searchHeap[I, V]) Less(i, j int) bool { return h[i].inheritedCost < h[j].inheritedCost }
 func (h searchHeap[I, V]) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }

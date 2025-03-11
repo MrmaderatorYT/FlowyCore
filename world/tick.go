@@ -14,6 +14,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// Йоу, чат! Сьогодні ми розберемо як працює система тіків у нашому сервері!
+// Тік - це основна одиниця часу в Minecraft, що триває 50мс (1/20 секунди).
+// За цей час сервер оновлює стан світу: рухає сутності, завантажує чанки,
+// синхронізує позиції гравців тощо. Давайте розберемо як це працює!
+
 package world
 
 import (
@@ -26,6 +31,8 @@ import (
 	"FlowyCore/world/internal/bvh"
 )
 
+// tickLoop запускає головний цикл оновлення світу
+// Викликається кожні 50мс (20 разів на секунду)
 func (w *World) tickLoop() {
 	var n uint
 	for range time.Tick(time.Microsecond * 20) {
@@ -34,38 +41,44 @@ func (w *World) tickLoop() {
 	}
 }
 
+// tick виконує одне оновлення світу
+// Розділений на підтіки для різних систем
 func (w *World) tick(n uint) {
 	w.tickLock.Lock()
 	defer w.tickLock.Unlock()
 
-	if n%8 == 0 {
-		w.subtickChunkLoad()
+	if n%8 == 0 { // кожен 8-й тік (4 рази на секунду)
+		w.subtickChunkLoad() // оновлюємо завантаження чанків
 	}
-	w.subtickUpdatePlayers()
-	w.subtickUpdateEntities()
+	w.subtickUpdatePlayers()  // оновлюємо стан гравців
+	w.subtickUpdateEntities() // оновлюємо стан сутностей
 }
 
+// subtickChunkLoad відповідає за завантаження та вивантаження чанків
+// Викликається 4 рази на секунду для оптимізації навантаження
 func (w *World) subtickChunkLoad() {
+	// Оновлюємо центр завантаження для кожного гравця
 	for c, p := range w.players {
-		x := int32(p.Position[0]) >> 4
-		y := int32(p.Position[1]) >> 4
+		x := int32(p.Position[0]) >> 4 // конвертуємо координати в чанки
+		y := int32(p.Position[1]) >> 4 // діленням на 16 (зсув на 4)
 		z := int32(p.Position[2]) >> 4
 		if newChunkPos := [3]int32{x, y, z}; newChunkPos != p.ChunkPos {
 			p.ChunkPos = newChunkPos
 			c.SendSetChunkCacheCenter([2]int32{x, z})
 		}
 	}
-	// because of the random traversal order of w.loaders, every loader has the same opportunity, so it's relatively fair.
+
+	// Завантажуємо нові чанки для кожного гравця
 LoadChunk:
 	for viewer, loader := range w.loaders {
-		loader.calcLoadingQueue()
+		loader.calcLoadingQueue() // розраховуємо які чанки потрібно завантажити
 		for _, pos := range loader.loadQueue {
-			if !loader.limiter.Allow() { // We reach the player limit. Skip
+			if !loader.limiter.Allow() { // перевіряємо ліміт завантаження
 				break
 			}
 			if _, ok := w.chunks[pos]; !ok {
 				if !w.loadChunk(pos) {
-					break LoadChunk // We reach the global limit. skip
+					break LoadChunk // досягнуто глобальний ліміт
 				}
 			}
 			loader.loaded[pos] = struct{}{}
@@ -73,7 +86,7 @@ LoadChunk:
 			lc.AddViewer(viewer)
 			lc.Lock()
 
-			// Перевірка чанку перед відправкою клієнту
+			// Перевіряємо чанк перед відправкою
 			if lc.Chunk == nil {
 				w.log.Error("Chunk is nil before ViewChunkLoad",
 					zap.Int32("x", pos[0]),
@@ -90,8 +103,10 @@ LoadChunk:
 			lc.Unlock()
 		}
 	}
+
+	// Вивантажуємо непотрібні чанки
 	for viewer, loader := range w.loaders {
-		loader.calcUnusedChunks()
+		loader.calcUnusedChunks() // шукаємо чанки поза зоною видимості
 		for _, pos := range loader.unloadQueue {
 			delete(loader.loaded, pos)
 			if !w.chunks[pos].RemoveViewer(viewer) {
@@ -100,6 +115,8 @@ LoadChunk:
 			viewer.ViewChunkUnload(pos)
 		}
 	}
+
+	// Вивантажуємо чанки без спостерігачів
 	var unloadQueue [][2]int32
 	for pos, chunk := range w.chunks {
 		if len(chunk.viewers) == 0 {
@@ -111,24 +128,30 @@ LoadChunk:
 	}
 }
 
+// subtickUpdatePlayers оновлює стан всіх гравців
+// Обробляє рух, телепортацію та зону видимості
 func (w *World) subtickUpdatePlayers() {
 	for c, p := range w.players {
 		if !p.Inputs.TryLock() {
 			continue
 		}
 		inputs := &p.Inputs
-		// update the range of visual.
+
+		// Оновлюємо радіус видимості
 		if p.ViewDistance != int32(inputs.ViewDistance) {
 			p.ViewDistance = int32(inputs.ViewDistance)
 			p.view = w.playerViews.Insert(p.getView(), w.playerViews.Delete(p.view))
 		}
-		// delete entities that not in range from entities lists of each player.
+
+		// Видаляємо сутності поза зоною видимості
 		for id, e := range p.EntitiesInView {
 			if !p.view.Box.WithIn(vec3d(e.Position)) {
-				delete(p.EntitiesInView, id) // it should be safe to delete element from a map being traversed.
+				delete(p.EntitiesInView, id)
 				p.view.Value.ViewRemoveEntities([]int32{id})
 			}
 		}
+
+		// Обробляємо телепортацію або рух
 		if p.teleport != nil {
 			if inputs.TeleportID == p.teleport.ID {
 				p.pos0 = p.teleport.Position
@@ -136,6 +159,7 @@ func (w *World) subtickUpdatePlayers() {
 				p.teleport = nil
 			}
 		} else {
+			// Перевіряємо швидкість руху
 			delta := [3]float64{
 				inputs.Position[0] - p.Position[0],
 				inputs.Position[1] - p.Position[1],
@@ -143,7 +167,7 @@ func (w *World) subtickUpdatePlayers() {
 			}
 			distance := math.Sqrt(delta[0]*delta[0] + delta[1]*delta[1] + delta[2]*delta[2])
 			if distance > 100 {
-				// You moved too quickly :( (Hacking?)
+				// Завелика швидкість - можливий чіт
 				teleportID := c.SendPlayerPosition(p.Position, p.Rotation)
 				p.teleport = &TeleportRequest{
 					ID:       teleportID,
@@ -167,13 +191,14 @@ func (w *World) subtickUpdatePlayers() {
 	}
 }
 
+// subtickUpdateEntities оновлює стан всіх сутностей
+// Наразі обробляє тільки гравців, бо інших сутностей ще немає
 func (w *World) subtickUpdateEntities() {
-	// TODO: entity list should be traversed here, but players are the only entities now.
 	for _, e := range w.players {
-		// sending Update Entity Position pack to every player who can see it, when it moves.
+		// Розраховуємо дельту позиції та повороту
 		var delta [3]int16
 		var rot [2]int8
-		if e.Position != e.pos0 { // TODO: send Teleport Entity pack instead when moving distance is greater than 8.
+		if e.Position != e.pos0 { // TODO: відправляти пакет телепортації якщо відстань > 8
 			delta = [3]int16{
 				int16((e.pos0[0] - e.Position[0]) * 32 * 128),
 				int16((e.pos0[1] - e.Position[1]) * 32 * 128),
@@ -186,21 +211,24 @@ func (w *World) subtickUpdateEntities() {
 				int8(e.rot0[1] * 256 / 360),
 			}
 		}
+
+		// Шукаємо гравців у зоні видимості
 		cond := bvh.TouchPoint[vec3d, aabb3d](vec3d(e.Position))
 		w.playerViews.Find(cond,
 			func(n *playerViewNode) bool {
 				if n.Value.Player == e {
-					return true // don't send the player self to the player
+					return true // не надсилаємо гравцю його власні рухи
 				}
-				// check if the current entity is in range of player visual. if so, moving data will be forwarded.
+				// Додаємо сутність в список видимих
 				if _, ok := n.Value.EntitiesInView[e.EntityID]; !ok {
-					// add the entity to the entity list of the player
 					n.Value.ViewAddPlayer(e)
 					n.Value.EntitiesInView[e.EntityID] = &e.Entity
 				}
 				return true
 			},
 		)
+
+		// Вибираємо тип пакету руху
 		var sendMove func(v EntityViewer)
 		switch {
 		case e.Position != e.pos0 && e.Rotation != e.rot0:
@@ -220,19 +248,20 @@ func (w *World) subtickUpdateEntities() {
 		default:
 			continue
 		}
+
+		// Оновлюємо позицію
 		e.Position = e.pos0
 		e.Rotation = e.rot0
+
+		// Надсилаємо оновлення всім гравцям в зоні видимості
 		w.playerViews.Find(cond,
 			func(n *playerViewNode) bool {
 				if n.Value.Player == e {
-					return true // not sending self movements to player self.
+					return true // пропускаємо самого гравця
 				}
-				// check if the current entity is in the player visual entities list. if so, moving data will be forwarded.
 				if _, ok := n.Value.EntitiesInView[e.EntityID]; ok {
 					sendMove(n.Value.EntityViewer)
 				} else {
-					// or the entity will be add to the entities list of the player
-					// TODO: deal with the situation that the entity is not a player
 					n.Value.ViewAddPlayer(e)
 					n.Value.EntitiesInView[e.EntityID] = &e.Entity
 				}
