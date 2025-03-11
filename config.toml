@@ -1,0 +1,18 @@
+# Основні налаштування сервера
+max-players = 20
+view-distance = 10
+listen-address = ":25566"
+motd = "Український Minecraft сервер"
+network-compression-threshold = 256
+online-mode = false
+level-name = "world"
+enforce-secure-profile = false
+
+# Налаштування лімітерів
+[chunk-loading-limiter]
+every = "50ms"
+n = 1
+
+[player-chunk-loading-limiter]
+every = "50ms"
+n = 1 
