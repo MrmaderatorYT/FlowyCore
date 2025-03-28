@@ -70,7 +70,7 @@ handler.RegisterCommand("mycommand", func(conn net.Conn, args []string) error {
 
 ## Автори
 
-- Ваше ім'я - Початковий розробник
+- CyberCraft Studio - Початковий розробник
 
 ## Подяки
 
